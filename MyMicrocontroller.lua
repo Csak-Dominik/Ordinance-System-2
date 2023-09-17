@@ -100,10 +100,8 @@ state_machine = {
     current_pylon = 1,
 }
 
-dead_pylons = {}
-
 function onTick()
-    --print("State: " .. state_machine.state)
+    print("State: " .. state_machine.state)
     if state_machine.state == ST_INIT or state_machine.state == ST_INIT_PING_WAIT then
         init()
         return
@@ -137,44 +135,15 @@ function init()
 
         -- if no pylon is responding, then the pylon doesn't exist
         -- this means we have found all pylons
-        if counters.pylon_wait_counter >= counters.pylon_wait_max then
+        if counters.pylon_wait() then
             state_machine.state = ST_NORMAL
             return
         end
-
-        counters.pylon_wait_counter = counters.pylon_wait_counter + 1
     end
 end
 
 function normal()
-    if state_machine.state == ST_NORMAL then
-        -- increment the current pylon and mod it by the max pylon index
-        inc_pylon()
-
-        -- if the pylon is dead, then skip it
-        if dead_pylons[state_machine.current_pylon] then
-            return
-        end
-
-        -- ping the pylon
-        instruction(INSTR_PING, {state_machine.current_pylon})
-
-        counters.pylon_wait_counter = 0
-
-        -- set the state to wait for a response
-        state_machine.state = ST_NORMAL_PING_WAIT
-    elseif state_machine.state == ST_NORMAL_PING_WAIT then
-        -- check for response (bool32)
-        if input.getBool(32) then
-            state_machine.state = ST_NORMAL
-        end
-
-        if counters.pylon_wait() then
-            -- the pylon is dead
-            dead_pylons[state_machine.current_pylon] = true
-            state_machine.state = ST_NORMAL
-        end
-    end
+    
 end
 
 function instruction(code, data)
