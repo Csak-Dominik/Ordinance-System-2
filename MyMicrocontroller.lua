@@ -68,8 +68,10 @@ INSTR_P_XYZ_OFF = 9
 
 
 -- Valid States:
--- IDLE: waiting for a command
-ST_IDLE = "IDLE"
+-- NORMAL: normal operation
+ST_NORMAL = "NORMAL"
+-- NORMAL_PING_WAIT: waiting for a ping response
+ST_NORMAL_PING_WAIT = "NORMAL_PING_WAIT"
 -- INIT: initialize the pylons
 ST_INIT = "INIT"
 -- PING_WAIT: waiting for a ping response
@@ -80,6 +82,15 @@ counters = {
     -- wait 5 seconds for pylon response (1 sec is 60 ticks)
     pylon_wait_max = 300,
     pylon_wait_counter = 0,
+    pylon_wait = function()
+        if counters.pylon_wait_counter >= counters.pylon_wait_max then
+            counters.pylon_wait_counter = 0
+            return true
+        end
+
+        counters.pylon_wait_counter = counters.pylon_wait_counter + 1
+        return false
+    end
 }
 
 state_machine = {
@@ -96,6 +107,10 @@ function onTick()
     if state_machine.state == ST_INIT or state_machine.state == ST_INIT_PING_WAIT then
         init()
         return
+    end
+
+    if state_machine.state == ST_NORMAL or state_machine.state == ST_NORMAL_PING_WAIT then
+        normal()
     end
 end
 
@@ -123,11 +138,42 @@ function init()
         -- if no pylon is responding, then the pylon doesn't exist
         -- this means we have found all pylons
         if counters.pylon_wait_counter >= counters.pylon_wait_max then
-            state_machine.state = ST_IDLE
+            state_machine.state = ST_NORMAL
             return
         end
 
         counters.pylon_wait_counter = counters.pylon_wait_counter + 1
+    end
+end
+
+function normal()
+    if state_machine.state == ST_NORMAL then
+        -- increment the current pylon and mod it by the max pylon index
+        inc_pylon()
+
+        -- if the pylon is dead, then skip it
+        if dead_pylons[state_machine.current_pylon] then
+            return
+        end
+
+        -- ping the pylon
+        instruction(INSTR_PING, {state_machine.current_pylon})
+
+        counters.pylon_wait_counter = 0
+
+        -- set the state to wait for a response
+        state_machine.state = ST_NORMAL_PING_WAIT
+    elseif state_machine.state == ST_NORMAL_PING_WAIT then
+        -- check for response (bool32)
+        if input.getBool(32) then
+            state_machine.state = ST_NORMAL
+        end
+
+        if counters.pylon_wait() then
+            -- the pylon is dead
+            dead_pylons[state_machine.current_pylon] = true
+            state_machine.state = ST_NORMAL
+        end
     end
 end
 
@@ -136,5 +182,12 @@ function instruction(code, data)
 
     for index, value in ipairs(data) do
         output.setNumber(index + 1, value)
+    end
+end
+
+function inc_pylon()
+    state_machine.current_pylon = (state_machine.current_pylon + 1) % state_machine.max_pylon_index
+    if state_machine.current_pylon == 0 then
+        state_machine.current_pylon = 1
     end
 end
